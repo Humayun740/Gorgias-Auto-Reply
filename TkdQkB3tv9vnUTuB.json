@@ -1,0 +1,397 @@
+{
+  "updatedAt": "2026-11-09T15:15:14.274Z",
+  "createdAt": "2026-11-09T08:05:32.478Z",
+  "id": "TkdQkB3tv9vnUTuB",
+  "name": "WISMO Auto-Resolution Engine",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "c8e3f991-1c20-4d59-be7f-293b6b8dcefd",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -32,
+        0
+      ],
+      "id": "75087339-8dae-465e-a195-dce4ffd76f6d",
+      "name": "Gorgias Ticket Intake",
+      "webhookId": "c8e3f991-1c20-4d59-be7f-293b6b8dcefd"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are an e-commerce support AI. Analyze the customer message.\nExtract:\n1. intent: \"WISMO\" if asking about order status/shipping, else \"OTHER\"\n2. order_number: The numerical order number without '#' (e.g. \"1001\"). If not provided, return null.\n\nRespond ONLY with valid JSON:\n{\"intent\": \"WISMO\", \"order_number\": \"1001\"}"
+            },
+            {
+              "content": "={{ $json.body.body_text }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        208,
+        0
+      ],
+      "id": "732ced04-1064-4d31-875b-312d9f25cf00",
+      "name": "AI Intent & Order Classifier",
+      "credentials": {
+        "openAiApi": {
+          "id": "E0VKbsSfRa1Ad8Yc",
+          "name": "OpenAI account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://sonic-v8gwc13y.myshopify.com/admin/api/2024-01/graphql.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "shpua_0c08915f04d0b6c6a2d6427674f5c80f"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  (() => {\n    const raw = JSON.parse($json.output[0].content[0].text);\n    const orderNum = raw.order_number;\n    return {\n      query: `query {\n        orders(first: 1, query: \"name:#${orderNum}\") {\n          edges {\n            node {\n              id\n              name\n              displayFulfillmentStatus\n              fulfillments {\n                trackingInfo {\n                  number\n                  url\n                  company\n                }\n              }\n            }\n          }\n        }\n      }`\n    };\n  })()\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        560,
+        0
+      ],
+      "id": "3a3e40aa-9659-414c-80f5-c8d8ac827599",
+      "name": "Shopify Live Order Lookup"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "b51936a2-fe04-4046-bce1-db1a0a119040",
+              "leftValue": "={{    (() => {     const edges = $json.data?.orders?.edges || [];     if (edges.length === 0) return false;     const order = edges[0].node;     return order.displayFulfillmentStatus === 'FULFILLED' &&             order.fulfillments?.[0]?.trackingInfo?.length > 0;   })() }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        752,
+        0
+      ],
+      "id": "24a34a48-dab8-4c32-b0d8-f108ea69724d",
+      "name": "Is Order Fulfilled?"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are a friendly, professional customer support agent for Sonic Store. \nWrite a concise, helpful email update to the customer about their order.\nInclude the order number, fulfillment status, carrier name, tracking number, and tracking link.\nKeep it natural and polite (under 4 sentences). Do not include placeholder text."
+            },
+            {
+              "content": "={{\n  (() => {\n    const order = $json.data.orders.edges[0].node;\n    const tracking = order.fulfillments[0].trackingInfo[0];\n    return `Customer Name: Humayun\nOrder: ${order.name}\nStatus: ${order.displayFulfillmentStatus}\nCarrier: ${tracking.company}\nTracking Number: ${tracking.number}\nTracking URL: ${tracking.url}`;\n  })()\n}}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        1040,
+        -112
+      ],
+      "id": "4cf06a55-397e-4876-bb04-a7eb315bd35d",
+      "name": "AI Response Generator",
+      "credentials": {
+        "openAiApi": {
+          "id": "E0VKbsSfRa1Ad8Yc",
+          "name": "OpenAI account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sonic-v8gwc13y.gorgias.com/api/tickets/{{ $('Gorgias Ticket Intake').item.json.body.ticket_id }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    channel: \"email\",\n    from_agent: true,\n    via: \"api\",\n    source: {\n      from: {\n        address: \"pqe41g47ld4g8yl3@email.gorgias.com\"\n      },\n      to: [\n        {\n          address: $('Gorgias Ticket Intake').item.json.body.customer_email\n        }\n      ]\n    },\n    body_text: $json.output[0].content[0].text\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1392,
+        -112
+      ],
+      "id": "f11a04f5-a30b-42b7-b533-cb38ad7a0b35",
+      "name": "Send Customer Email",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "ssmEkYw9Ad0gAPUm",
+          "name": "Gorgias"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://sonic-v8gwc13y.gorgias.com/api/tickets/{{ $('Gorgias Ticket Intake').item.json.body.ticket_id }}/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    status: \"closed\",\n    channel: \"email\",\n    via: \"api\",\n    customer: {\n      email: $('Gorgias Ticket Intake').item.json.body.customer_email\n    }\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1600,
+        -112
+      ],
+      "id": "0b3825e1-c852-4867-adf5-c200f276ea9f",
+      "name": "Auto-Close Resolved Ticket",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "ssmEkYw9Ad0gAPUm",
+          "name": "Gorgias"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sonic-v8gwc13y.gorgias.com/api/tickets/{{ $('Gorgias Ticket Intake').item.json.body.ticket_id }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    channel: \"internal-note\",\n    from_agent: true,\n    via: \"api\",\n    body_text: \"⚠️ [AI Agent Alert]: Customer submitted a WISMO inquiry, but the order is either not yet fulfilled or does not exist in Shopify. Tagged for human review.\",\n    actions: {\n      ticket: {\n        tags: [\n          { name: \"needs_human_review\" },\n          { name: \"unfulfilled_wismo\" }\n        ],\n        status: \"open\"\n      }\n    }\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1056,
+        96
+      ],
+      "id": "1d288bb3-7d87-4e49-9f18-0abe26b04da8",
+      "name": "Escalate & Tag for Human Review",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "ssmEkYw9Ad0gAPUm",
+          "name": "Gorgias"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Gorgias Ticket Intake": {
+      "main": [
+        [
+          {
+            "node": "AI Intent & Order Classifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Intent & Order Classifier": {
+      "main": [
+        [
+          {
+            "node": "Shopify Live Order Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify Live Order Lookup": {
+      "main": [
+        [
+          {
+            "node": "Is Order Fulfilled?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Order Fulfilled?": {
+      "main": [
+        [
+          {
+            "node": "AI Response Generator",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Escalate & Tag for Human Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Response Generator": {
+      "main": [
+        [
+          {
+            "node": "Send Customer Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Customer Email": {
+      "main": [
+        [
+          {
+            "node": "Auto-Close Resolved Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {
+    "Gorgias Ticket Intake": [
+      {
+        "json": {
+          "body": {
+            "ticket_id": "101496184",
+            "customer_email": "humayunbilal04@gmail.com",
+            "subject": "Where is my order?",
+            "body_text": "Hi, I ordered a hoodie a few days ago under order #1001, but haven't received any shipping update yet. Can you check where it is?"
+          }
+        }
+      }
+    ]
+  },
+  "versionId": "a1795b43-928d-4e4f-8664-8df25123eea2",
+  "activeVersionId": "04f074fe-754c-400c-a306-d5963ca5c512",
+  "versionCounter": 130,
+  "triggerCount": 1,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-11-09T08:05:32.480Z",
+      "createdAt": "2026-11-09T08:05:32.480Z",
+      "role": "workflow:owner",
+      "workflowId": "TkdQkB3tv9vnUTuB",
+      "projectId": "l8tQ6KXCdLNNF3lR",
+      "project": {
+        "updatedAt": "2026-05-16T09:01:59.194Z",
+        "createdAt": "2026-05-16T08:51:18.717Z",
+        "id": "l8tQ6KXCdLNNF3lR",
+        "name": "Humayun BIlal <humayunbilal04@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "9973a507-50b5-4edf-b7a2-eb0c8d0da2cb"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}
